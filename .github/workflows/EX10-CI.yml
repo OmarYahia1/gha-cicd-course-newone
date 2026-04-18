@@ -1,16 +1,16 @@
-name: CI + Build Workflow
+name: CI and Build Pipeline
 
 on:
-  # PR CI trigger
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+    types:
+      - closed
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "tests/**"
+      - ".github/workflows/**"
 
-  # After merge trigger (push to main)
-  push:
-    branches: [main]
-
-  # Manual run still allowed
   workflow_dispatch:
 
 env:
@@ -19,11 +19,11 @@ env:
   ARTIFACT_NAME: tiny-health-app-image
 
 jobs:
-
-  # ✅ Part A: PR verification
-  verify:
+  # Job 1: Run Tests
+  run-tests:
+    if: github.event.pull_request.merged == true
+    
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -36,26 +36,15 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
-  # ✅ Part B: Build only AFTER merge (push to main)
+  # Job 2: Build and Package
   build-package:
-    needs: verify
+    needs: run-tests
+    if: github.event.pull_request.merged == true
+    
     runs-on: ubuntu-latest
-
-    # 🔥 Critical: only run on push to main (NOT PR)
-    # 🔥 Critical: only run on push to main (NOT PR)
-    if: github.event_name == 'push'
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Run tests
-        run: python -m unittest discover -s tests -v
 
       - name: Set image tag
         id: image-tag
@@ -64,13 +53,13 @@ jobs:
           IMAGE_TAG="${TODAY}-${GITHUB_RUN_ID}"
           echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker image
+      - name: Build Docker image with docker build
         run: |
           docker build \
             -t "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" \
             .
 
-      - name: Save Docker image
+      - name: Save Docker image as artifact file
         run: docker save "${IMAGE_NAME}:${{ steps.image-tag.outputs.image_tag }}" -o "${IMAGE_TAR}"
 
       - name: Upload build artifact
